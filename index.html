@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Teleprompter Pro</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#000;--s:#0d0d0d;
+  --a:#00e5b4;--a2:#00aaff;--w:#ff6b35;--d:#ff4757;
+  --t:#fff;--t2:#555;--r:16px;
+}
+html,body{height:100%;width:100%;overflow:hidden;position:fixed;
+  background:var(--bg);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:var(--t)}
+
+.screen{display:none;position:absolute;inset:0;flex-direction:column;overflow:hidden}
+.screen.active{display:flex}
+
+#setup{overflow-y:auto;-webkit-overflow-scrolling:touch}
+.hdr{padding:50px 20px 24px;text-align:center;
+  background:radial-gradient(ellipse at 50% -20%,#003326,#000 65%)}
+.logo-pill{display:inline-block;padding:4px 14px;border:1px solid rgba(0,229,180,.3);
+  border-radius:20px;font-size:10px;letter-spacing:3px;color:var(--a);
+  text-transform:uppercase;margin-bottom:14px}
+.hdr h1{font-size:28px;font-weight:800;letter-spacing:-1px;margin-bottom:6px;
+  background:linear-gradient(135deg,var(--a),var(--a2));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hdr p{font-size:13px;color:var(--t2);line-height:1.5}
+.sbody{padding:16px;display:flex;flex-direction:column;gap:12px;padding-bottom:50px}
+.card{background:var(--s);border-radius:var(--r);padding:16px;border:1px solid #1e1e1e}
+.cl{font-size:10px;letter-spacing:2px;color:var(--a);text-transform:uppercase;font-weight:700;margin-bottom:12px}
+
+textarea{width:100%;min-height:160px;background:#080808;
+  border:1.5px solid #1e1e1e;border-radius:12px;
+  color:var(--t);font-size:15px;line-height:1.75;
+  padding:14px;resize:none;outline:none;font-family:inherit;-webkit-appearance:none}
+textarea:focus{border-color:rgba(0,229,180,.4)}
+textarea::placeholder{color:#2a2a2a;line-height:1.75}
+
+.srow{display:flex;align-items:center;gap:12px}
+.srow label{font-size:13px;color:var(--t2);min-width:50px}
+.sval{font-size:15px;color:var(--a);min-width:38px;text-align:right;font-weight:700}
+input[type=range]{flex:1;-webkit-appearance:none;appearance:none;
+  height:4px;border-radius:2px;background:#222;outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;
+  border-radius:50%;background:var(--a);cursor:pointer;
+  box-shadow:0 0 0 4px rgba(0,229,180,.15)}
+
+.mpills{display:flex;gap:8px}
+.mpill{flex:1;padding:12px 8px;border-radius:12px;border:1.5px solid #222;
+  background:transparent;color:var(--t2);font-size:12px;font-weight:600;
+  cursor:pointer;text-align:center;line-height:1.4;transition:all .2s}
+.mpill .mi{font-size:22px;display:block;margin-bottom:4px}
+.mpill.sel{border-color:var(--a);background:rgba(0,229,180,.08);color:var(--a)}
+
+.crow{display:flex;gap:10px;align-items:center}
+.cdot{width:32px;height:32px;border-radius:50%;border:2.5px solid transparent;
+  cursor:pointer;transition:transform .15s;flex-shrink:0}
+.cdot.sel{border-color:#fff;transform:scale(1.2)}
+
+#spdc{display:none}
+#spdc.vis{display:block}
+
+.go-btn{width:100%;padding:18px;border-radius:var(--r);border:none;
+  background:linear-gradient(135deg,var(--a),var(--a2));
+  color:#000;font-size:17px;font-weight:800;cursor:pointer;
+  -webkit-appearance:none;box-shadow:0 0 32px rgba(0,229,180,.2);margin-top:4px}
+.go-btn:active{opacity:.85}
+
+/* ══ PROMPTER ══ */
+#prompter{background:#000;touch-action:none}
+#prompter::before,#prompter::after{content:'';position:absolute;left:0;right:0;z-index:10;pointer-events:none}
+#prompter::before{top:0;height:130px;background:linear-gradient(to bottom,#000 35%,transparent)}
+#prompter::after{bottom:0;height:170px;background:linear-gradient(to top,#000 40%,transparent)}
+
+.rline{position:absolute;left:5%;right:5%;top:calc(38% - 1px);height:2px;
+  background:linear-gradient(90deg,transparent,rgba(0,229,180,.15),transparent);
+  z-index:11;pointer-events:none}
+
+#sw{position:absolute;top:0;left:0;right:0;will-change:transform}
+#sd{padding:46vh 24px 50vh;font-size:36px;line-height:1.9;
+  font-weight:600;text-align:center;word-break:break-word;letter-spacing:.01em}
+
+/* ─────────────────────────────────────────────
+   WORD STATES — exactly TWO visual states only:
+   1. Unread / past  → dim white (same shade, no distinction needed)
+   2. Current word   → pure white + green glow (no background box)
+───────────────────────────────────────────── */
+.w{
+  display:inline;
+  color:rgba(255,255,255,0.2);
+  transition:color .07s ease, text-shadow .07s ease;
+}
+.w.past{
+  color:rgba(255,255,255,0.2);
+}
+.w.current{
+  color:#ffffff;
+  text-shadow:
+    0 0 16px rgba(0,229,180,1),
+    0 0 36px rgba(0,229,180,0.5),
+    0 0 60px rgba(0,229,180,0.2);
+}
+
+/* Control bar */
+.cbar{position:absolute;bottom:0;left:0;right:0;height:82px;
+  background:rgba(0,0,0,.94);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  border-top:1px solid #111;display:flex;align-items:center;
+  justify-content:space-around;padding:0 4px 10px;z-index:20}
+.cb{display:flex;flex-direction:column;align-items:center;gap:3px;
+  padding:8px 6px;border-radius:12px;border:none;background:transparent;
+  color:var(--t2);font-size:9px;font-weight:600;letter-spacing:.3px;
+  text-transform:uppercase;cursor:pointer;min-width:56px;flex:1}
+.cb .ic{font-size:24px;line-height:1}
+.cb:active{background:rgba(255,255,255,.06)}
+.cb.on{color:var(--a)}
+#b-play{background:rgba(0,229,180,.09);border:1.5px solid rgba(0,229,180,.25);
+  border-radius:14px;color:var(--a);min-width:70px}
+#b-play .ic{font-size:28px}
+
+.sbar{position:absolute;top:0;left:0;right:0;height:44px;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 14px;z-index:20}
+.stag{font-size:11px;font-weight:600;letter-spacing:.4px;padding:4px 12px;
+  border-radius:20px;border:1px solid #1e1e1e;color:var(--t2);
+  background:rgba(0,0,0,.8);max-width:70%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.stag.ls{border-color:rgba(0,229,180,.4);color:var(--a)}
+.stag.au{border-color:rgba(0,170,255,.4);color:var(--a2)}
+.stag.pa{border-color:rgba(255,107,53,.4);color:var(--w)}
+.stag.er{border-color:rgba(255,71,87,.4);color:var(--d)}
+.wcount{font-size:11px;color:var(--t2);font-weight:600;flex-shrink:0}
+
+#prog{position:absolute;top:0;left:0;height:2px;
+  background:linear-gradient(90deg,var(--a),var(--a2));z-index:25;width:0%;transition:width .3s}
+
+/* Mic pulse dot */
+@keyframes micpulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.3;transform:scale(.5)}}
+#mic-dot{display:none;width:8px;height:8px;border-radius:50%;background:var(--a);
+  position:absolute;top:18px;right:14px;z-index:22}
+#mic-dot.on{display:block;animation:micpulse 1.1s ease-in-out infinite}
+
+#spanel{display:none;position:absolute;bottom:88px;left:12px;right:12px;
+  background:#0d0d0d;border:1px solid #222;border-radius:var(--r);
+  padding:18px;z-index:25}
+#spanel.show{display:block}
+#spanel .cl{margin-bottom:14px}
+
+#done{display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  background:#0d0d0d;border:2px solid var(--a);border-radius:var(--r);
+  padding:32px 28px;text-align:center;z-index:30;width:80%;max-width:300px}
+#done .di{font-size:44px;margin-bottom:12px}
+#done h2{color:var(--a);font-size:22px;font-weight:800;margin-bottom:6px}
+#done p{color:var(--t2);font-size:13px;line-height:1.6}
+
+#mico{display:none;position:absolute;inset:0;background:rgba(0,0,0,.97);z-index:50;
+  flex-direction:column;align-items:center;justify-content:center;
+  padding:28px;text-align:center;gap:14px}
+#mico.show{display:flex}
+#mico h2{color:var(--w);font-size:20px;font-weight:700}
+#mico p{color:var(--t2);font-size:13px;line-height:1.8;max-width:300px}
+#mico p b{color:#fff}
+.ybtn{width:100%;max-width:280px;padding:15px;border-radius:var(--r);
+  border:none;background:var(--a);color:#000;font-size:15px;font-weight:700;cursor:pointer}
+.nbtn{width:100%;max-width:280px;padding:13px;border-radius:var(--r);
+  border:2px solid #333;background:transparent;color:var(--t2);
+  font-size:14px;font-weight:600;cursor:pointer}
+</style>
+</head>
+<body>
+
+<!-- ══ SETUP ══ -->
+<div id="setup" class="screen active">
+  <div class="hdr">
+    <div class="logo-pill">Teleprompter Pro</div>
+    <h1>AI Teleprompter</h1>
+    <p>Real-time voice tracking · Sequential word matching · Built for creators</p>
+  </div>
+  <div class="sbody">
+    <div class="card">
+      <div class="cl">📝 Your Script</div>
+      <textarea id="ta" placeholder="Paste or type your script here…&#10;&#10;The teleprompter tracks your voice word by word as you speak."></textarea>
+    </div>
+    <div class="card">
+      <div class="cl">🔤 Text Size</div>
+      <div class="srow">
+        <label>Size</label>
+        <input type="range" id="sz" min="22" max="68" value="36">
+        <span class="sval" id="szv">36px</span>
+      </div>
+    </div>
+    <div class="card">
+      <div class="cl">🎨 Text Colour</div>
+      <div class="crow">
+        <div class="cdot sel" data-c="#ffffff" style="background:#fff"></div>
+        <div class="cdot" data-c="#00e5b4" style="background:#00e5b4"></div>
+        <div class="cdot" data-c="#ffdd57" style="background:#ffdd57"></div>
+        <div class="cdot" data-c="#ff9f43" style="background:#ff9f43"></div>
+        <div class="cdot" data-c="#74b9ff" style="background:#74b9ff"></div>
+        <div class="cdot" data-c="#fd79a8" style="background:#fd79a8"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="cl">🎙 Scroll Mode</div>
+      <div class="mpills">
+        <button class="mpill sel" data-mode="voice">
+          <span class="mi">🎤</span>Voice Mode<br>
+          <small style="opacity:.6;font-weight:400;font-size:10px">Tracks your speech live</small>
+        </button>
+        <button class="mpill" data-mode="auto">
+          <span class="mi">⚙️</span>Auto Scroll<br>
+          <small style="opacity:.6;font-weight:400;font-size:10px">No mic needed</small>
+        </button>
+      </div>
+    </div>
+    <div class="card" id="spdc">
+      <div class="cl">⚡ Scroll Speed</div>
+      <div class="srow">
+        <label>Speed</label>
+        <input type="range" id="spd" min="1" max="10" value="3">
+        <span class="sval" id="spdv">3</span>
+      </div>
+    </div>
+    <button class="go-btn" id="start-btn">▶  START PROMPTER</button>
+  </div>
+</div>
+
+<!-- ══ PROMPTER ══ -->
+<div id="prompter" class="screen">
+  <div id="prog"></div>
+  <div id="mic-dot"></div>
+  <div class="sbar">
+    <span class="stag" id="stag">Ready</span>
+    <span class="wcount" id="wcount"></span>
+  </div>
+  <div class="rline"></div>
+  <div id="sw"><div id="sd"></div></div>
+  <div id="mico">
+    <span style="font-size:52px">🎤</span>
+    <h2>Microphone Blocked</h2>
+    <p id="mico-msg">Allow microphone access to use Voice Mode.</p>
+    <button class="ybtn" id="mic-retry">Retry Microphone</button>
+    <button class="nbtn" id="mic-switch">Use Auto Scroll Instead</button>
+  </div>
+  <div id="spanel">
+    <div class="cl">⚡ Scroll Speed</div>
+    <div class="srow">
+      <label>Speed</label>
+      <input type="range" id="spd-p" min="1" max="10" value="3">
+      <span class="sval" id="spd-pv">3</span>
+    </div>
+  </div>
+  <div id="done">
+    <div class="di">🎬</div>
+    <h2>That's a wrap!</h2>
+    <p>Great take! Tap Restart or go back to your script.</p>
+  </div>
+  <div class="cbar">
+    <button class="cb" id="b-back"><span class="ic">←</span><span>Setup</span></button>
+    <button class="cb" id="b-spd"><span class="ic">⚡</span><span>Speed</span></button>
+    <button class="cb" id="b-play"><span class="ic" id="p-ico">⏸</span><span id="p-lbl">Pause</span></button>
+    <button class="cb on" id="b-mode"><span class="ic" id="m-ico">🎤</span><span id="m-lbl">Voice</span></button>
+    <button class="cb" id="b-rst"><span class="ic">↺</span><span>Restart</span></button>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════
+//  TELEPROMPTER PRO v7 — Pure Sequential Voice Tracker
+//
+//  The problem with previous versions: they searched the
+//  ENTIRE script for matching words, so repeated words
+//  (the, and, you, it...) would cause random jumps.
+//
+//  This version solves it with a strict sequential approach:
+//
+//  1. STRICT FORWARD-ONLY: Only look within SCAN_WINDOW
+//     words ahead of current position. Never look back,
+//     never jump far.
+//
+//  2. SEQUENTIAL CONFIRMATION: A word only "counts" if the
+//     words AFTER it also match in order. Single-word matches
+//     are ignored unless they're part of a sequence.
+//
+//  3. SPOKEN WORD QUEUE: Spoken words are consumed as they
+//     are matched. This prevents the same spoken word from
+//     matching multiple script positions.
+//
+//  4. INTERIM RESULTS: Browser sends words mid-speech,
+//     not just at end of sentence — used for real-time response.
+//
+//  5. NO AI, NO NETWORK: 100% local, zero latency.
+// ════════════════════════════════════════════════════════
+
+var ua=navigator.userAgent||'';
+var isIOS=/iPad|iPhone|iPod/.test(ua);
+var isAndroid=/Android/.test(ua);
+var isHTTPS=location.protocol==='https:';
+var isLocal=location.protocol==='file:';
+
+function micMsg(){
+  if(isIOS) return '<b>iPhone/iPad:</b><br>Settings → Safari → Microphone → Allow.<br>Then tap Retry.';
+  if(isAndroid) return '<b>Android:</b><br>Tap 🔒 in address bar → Microphone → Allow.<br>Then tap Retry.';
+  return 'Click the 🔒 in your address bar → Microphone → Allow. Then tap Retry.';
+}
+
+// ── STATE ────────────────────────────────────────────────
+var MODE='voice', PAUSED=false, RUNNING=false;
+var SPD=3, FS=36, COL='#ffffff';
+var wordEls=[], wordTops=[], wordRaw=[], wordClean=[];
+var wordLen=0, curIdx=0;
+var SCROLL_Y=0, targetY=0, VEL=0;
+var scrollRAF=null, autoRAF=null, lastTS=null;
+
+// Voice state
+var rec=null, recStarting=false;
+var silTimer=null;
+var SIL_MS=4500;
+
+// Tracker state
+// finalAccum: all confirmed-final transcript text accumulated
+// We track how far we've processed to extract only NEW final words
+var finalAccum='';
+// spokenQueue: cleaned words waiting to be matched against script
+var spokenQueue=[];
+// matchHead: pointer into spokenQueue of where matching starts
+// (we slide this forward as words get consumed)
+var SCAN_WINDOW=16; // max script words ahead to search
+
+// ── SETUP UI ─────────────────────────────────────────────
+document.getElementById('sz').addEventListener('input',function(){
+  FS=parseInt(this.value);
+  document.getElementById('szv').textContent=FS+'px';
+});
+function syncSpd(v){
+  SPD=v;
+  ['spd','spd-p'].forEach(function(id){document.getElementById(id).value=v;});
+  ['spdv','spd-pv'].forEach(function(id){document.getElementById(id).textContent=v;});
+}
+document.getElementById('spd').addEventListener('input',function(){syncSpd(parseInt(this.value));});
+document.getElementById('spd-p').addEventListener('input',function(){syncSpd(parseInt(this.value));});
+document.querySelectorAll('.mpill').forEach(function(b){
+  b.addEventListener('click',function(){
+    document.querySelectorAll('.mpill').forEach(function(x){x.classList.remove('sel');});
+    b.classList.add('sel'); MODE=b.dataset.mode;
+    document.getElementById('spdc').classList.toggle('vis',MODE==='auto');
+  });
+});
+document.querySelectorAll('.cdot').forEach(function(b){
+  b.addEventListener('click',function(){
+    document.querySelectorAll('.cdot').forEach(function(x){x.classList.remove('sel');});
+    b.classList.add('sel'); COL=b.dataset.c;
+  });
+});
+
+// ── LAUNCH ───────────────────────────────────────────────
+document.getElementById('start-btn').addEventListener('click',function(){
+  var text=document.getElementById('ta').value.trim();
+  if(!text){
+    var ta=document.getElementById('ta');
+    ta.style.borderColor='rgba(255,71,87,.6)';
+    setTimeout(function(){ta.style.borderColor='#1e1e1e';},1500);
+    return;
+  }
+  launch(text);
+});
+
+function launch(text){
+  var sd=document.getElementById('sd');
+  sd.style.fontSize=FS+'px';
+  sd.innerHTML='';
+  wordEls=[];wordRaw=[];wordClean=[];
+  curIdx=0;SCROLL_Y=0;targetY=0;VEL=0;
+  resetTrackerState();
+
+  text.split(/(\s+)/).forEach(function(tok){
+    if(/\S/.test(tok)){
+      var sp=document.createElement('span');
+      sp.className='w';
+      sp.textContent=tok;
+      sd.appendChild(sp);
+      wordEls.push(sp);
+      wordRaw.push(tok);
+      wordClean.push(cleanWord(tok));
+    } else {
+      sd.appendChild(document.createTextNode(tok));
+    }
+  });
+  wordLen=wordEls.length;
+
+  document.getElementById('setup').classList.remove('active');
+  document.getElementById('prompter').classList.add('active');
+  document.getElementById('done').style.display='none';
+  document.getElementById('mico').classList.remove('show');
+  document.getElementById('wcount').textContent='0 / '+wordLen;
+  RUNNING=true;PAUSED=false;setPlayUI(true);
+
+  requestAnimationFrame(function(){requestAnimationFrame(function(){
+    measure();
+    paintWords(0);
+    startScrollLoop();
+    if(MODE==='voice') beginVoice(); else beginAuto();
+    updateModeBtn();
+  });});
+}
+
+function cleanWord(s){
+  return s.toLowerCase().replace(/[^a-z0-9]/g,'');
+}
+function resetTrackerState(){
+  finalAccum='';
+  spokenQueue=[];
+}
+
+// ── MEASURE ──────────────────────────────────────────────
+function measure(){
+  var wrap=document.getElementById('sw');
+  wrap.style.transform='translateY(0px)';
+  SCROLL_Y=0;targetY=0;
+  var wt=wrap.getBoundingClientRect().top;
+  wordTops=wordEls.map(function(sp){return sp.getBoundingClientRect().top-wt;});
+}
+
+// ── PAINT — only two states: past/current, no extras ─────
+function paintWords(idx){
+  for(var i=0;i<wordLen;i++){
+    var el=wordEls[i];
+    // Reset — default CSS is dim (unread)
+    el.className='w';
+    if(i<idx)       el.classList.add('past');
+    else if(i===idx) el.classList.add('current');
+  }
+  document.getElementById('wcount').textContent=(idx+1)+' / '+wordLen;
+  var pct=wordLen>1?(idx/(wordLen-1))*100:0;
+  document.getElementById('prog').style.width=Math.min(100,pct)+'%';
+}
+
+// ── SCROLL SPRING ────────────────────────────────────────
+function startScrollLoop(){
+  cancelAnimationFrame(scrollRAF);
+  function loop(){
+    scrollRAF=requestAnimationFrame(loop);
+    if(!RUNNING) return;
+    var diff=targetY-SCROLL_Y;
+    if(Math.abs(diff)<0.3){SCROLL_Y=targetY;VEL=0;}
+    else{VEL=VEL*0.85+diff*0.07;SCROLL_Y+=VEL;}
+    document.getElementById('sw').style.transform='translateY('+(-SCROLL_Y)+'px)';
+  }
+  loop();
+}
+function wordTarget(idx){
+  if(wordTops[idx]==null) return;
+  var raw=wordTops[idx]-window.innerHeight*0.38;
+  var max=Math.max(0,document.getElementById('sw').scrollHeight-window.innerHeight+82);
+  targetY=Math.max(0,Math.min(raw,max));
+}
+
+// ── AUTO MODE ────────────────────────────────────────────
+function beginAuto(){
+  stopVoice();cancelAnimationFrame(autoRAF);lastTS=null;
+  setStag('au','⚙️ Auto — Speed '+SPD);
+  autoRAF=requestAnimationFrame(autoTick);
+}
+function autoTick(ts){
+  if(!RUNNING||MODE!=='auto') return;
+  autoRAF=requestAnimationFrame(autoTick);
+  if(PAUSED){lastTS=null;return;}
+  if(!lastTS){lastTS=ts;return;}
+  var dt=(ts-lastTS)/1000;lastTS=ts;
+  var max=Math.max(0,document.getElementById('sw').scrollHeight-window.innerHeight+82);
+  targetY=Math.min(targetY+SPD*42*dt,max+window.innerHeight*.25);
+  var rl=SCROLL_Y+window.innerHeight*.38;
+  var best=0,bd=Infinity;
+  wordTops.forEach(function(t,i){var d=Math.abs(t-rl);if(d<bd){bd=d;best=i;}});
+  if(best!==curIdx){curIdx=best;paintWords(curIdx);}
+  if(targetY>=max+window.innerHeight*.1) finish();
+}
+
+// ══════════════════════════════════════════════════════════
+//  VOICE ENGINE
+// ══════════════════════════════════════════════════════════
+function beginVoice(){
+  stopAuto();
+  if(isLocal||(!isHTTPS&&location.hostname!=='localhost')){showMicBlock();return;}
+  var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){MODE='auto';updateModeBtn();beginAuto();return;}
+  if(rec){try{rec.abort();}catch(e){}rec=null;}
+
+  var r=new SR();
+  r.continuous=true;
+  r.interimResults=true;
+  r.lang='en-US';
+  r.maxAlternatives=1;
+
+  r.onstart=function(){
+    recStarting=false;
+    document.getElementById('mico').classList.remove('show');
+    document.getElementById('mic-dot').classList.add('on');
+    setStag('ls','🎤 Listening…');
+    kickSil();
+  };
+
+  r.onresult=function(e){
+    if(PAUSED||!RUNNING) return;
+    kickSil();
+
+    // Separate finals from interim
+    var finals='';
+    var interim='';
+    for(var i=0;i<e.results.length;i++){
+      var t=e.results[i][0].transcript;
+      if(e.results[i].isFinal) finals+=t+' ';
+      else interim+=t+' ';
+    }
+
+    // Extract only NEW final words (words we haven't seen before)
+    if(finals.length>finalAccum.length){
+      var newText=finals.slice(finalAccum.length);
+      finalAccum=finals;
+      var newWords=extractWords(newText);
+      // Push to queue
+      for(var j=0;j<newWords.length;j++) spokenQueue.push(newWords[j]);
+    }
+
+    // Also grab interim words for real-time response
+    // These are tentative — combine with queue for matching
+    var interimWords=extractWords(interim);
+
+    // Run the sequential tracker
+    runTracker(interimWords);
+  };
+
+  r.onerror=function(e){
+    recStarting=false;
+    if(e.error==='not-allowed'||e.error==='service-not-allowed'){showMicBlock();return;}
+    if(e.error==='no-speech'||e.error==='aborted') return;
+    if(RUNNING&&MODE==='voice'&&!PAUSED) setTimeout(tryRec,500);
+  };
+  r.onend=function(){
+    recStarting=false;
+    document.getElementById('mic-dot').classList.remove('on');
+    if(RUNNING&&MODE==='voice'&&!PAUSED) setTimeout(tryRec,300);
+  };
+
+  rec=r;
+  tryRec();
+}
+
+function tryRec(){
+  if(!rec||MODE!=='voice'||!RUNNING||PAUSED||recStarting) return;
+  recStarting=true;
+  setTimeout(function(){
+    if(!rec||MODE!=='voice'||!RUNNING||PAUSED){recStarting=false;return;}
+    try{rec.start();}
+    catch(e){
+      recStarting=false;
+      if(RUNNING&&MODE==='voice'&&!PAUSED) setTimeout(tryRec,600);
+    }
+  },350);
+}
+
+function kickSil(){
+  clearTimeout(silTimer);
+  silTimer=setTimeout(function(){
+    if(RUNNING&&!PAUSED&&MODE==='voice'){
+      setStag('ls','🎤 Listening…');
+      if(rec){try{rec.abort();}catch(e){}rec=null;}
+      recStarting=false;
+      beginVoice();
+    }
+  },SIL_MS);
+}
+
+function extractWords(text){
+  return text.toLowerCase().replace(/[^a-z0-9\s]/g,'').trim().split(/\s+/).filter(Boolean);
+}
+
+// ══════════════════════════════════════════════════════════
+//  SEQUENTIAL TRACKER v7
+//
+//  Core algorithm:
+//  - Combine confirmed (spokenQueue) + interim words into one pool
+//  - Take the last N words from pool (most recent speech)
+//  - For each candidate script position si (curIdx+1 to curIdx+SCAN_WINDOW):
+//      Try to align the END of the spoken pool with script[si...]
+//      Score = number of consecutive matching word pairs
+//  - Only advance if:
+//      (a) score >= 2 (at least 2 consecutive matches), OR
+//      (b) score >= 1 AND it's an exact match of a rare/long word
+//  - Move to the FIRST position that meets the threshold
+//    (not the highest-scoring one — prevents jumping forward)
+//
+//  This means: common words like "the", "and", "I" alone never
+//  trigger a jump. Only sequences of words match.
+// ══════════════════════════════════════════════════════════
+function runTracker(interimWords){
+  if(curIdx>=wordLen-1) return;
+
+  // Build working pool: queue + interim, last 18 words
+  var pool=spokenQueue.concat(interimWords).slice(-18);
+  if(pool.length<1) return;
+
+  // Scan strictly forward from current position
+  var scanEnd=Math.min(wordLen-1, curIdx+SCAN_WINDOW);
+
+  // Find the EARLIEST position that scores well
+  // (not best — earliest, to avoid skipping lines)
+  for(var si=curIdx+1;si<=scanEnd;si++){
+    var score=scoreAt(si, pool);
+    if(score>=2.0){
+      // Strong consecutive match — advance
+      advanceTo(si);
+      return;
+    }
+    if(score>=1.0){
+      // Single strong match — only accept for long/rare words (len>5)
+      // to avoid common short words causing jumps
+      var sw=wordClean[si];
+      if(sw&&sw.length>5){
+        advanceTo(si);
+        return;
+      }
+    }
+  }
+}
+
+// Score how well script[si, si+1, si+2...] aligns with
+// the END of the spoken pool.
+// Returns float: roughly = number of consecutive matched word pairs
+function scoreAt(si, pool){
+  // Align pool end with script at si
+  // pool[pool.length-1] should match wordClean[si]
+  // pool[pool.length-2] should match wordClean[si+1], etc.
+  // (we look forward in script, backward in pool)
+
+  var score=0;
+  var consecutive=0;
+  var pi=pool.length-1;
+  var ri=si;
+
+  for(var k=0;k<5&&ri<wordLen&&pi>=0;k++){
+    var sw=wordClean[ri];
+    var sp=pool[pi];
+    if(!sw||!sp){ri++;pi--;continue;}
+
+    var m=wordMatch(sp,sw);
+    if(m>0){
+      score+=m;
+      consecutive++;
+      // Consecutive bonus — key to avoiding false positives
+      if(consecutive>=2) score+=0.6;
+      ri++;pi--;
+    } else {
+      // Allow one word to be skipped in the script
+      // (speaker may have skipped a filler word)
+      if(consecutive>0&&ri+1<wordLen&&wordMatch(sp,wordClean[ri+1])>0){
+        ri++;// skip this script word, try next
+        // don't decrement pi — retry same spoken word
+        score+=0.1;// tiny partial credit
+      } else {
+        break;// hard mismatch — stop here
+      }
+    }
+  }
+
+  return (consecutive>=1)?score:-1;
+}
+
+// Match a single spoken word against a script word
+// Returns: 1.0=exact, 0.85=prefix, 0.7=fuzzy, 0=no match
+function wordMatch(spoken,script){
+  if(!spoken||!script) return 0;
+  if(spoken===script) return 1.0;
+  if(spoken.length>=3&&script.startsWith(spoken)) return 0.85;
+  if(script.length>=3&&spoken.startsWith(script)) return 0.85;
+  // Allow 1-char difference for longer words (accent/slur)
+  if(spoken.length>=5&&script.length>=5&&editDist1(spoken,script)) return 0.7;
+  return 0;
+}
+
+// Fast single-edit-distance test (no full matrix)
+function editDist1(a,b){
+  if(Math.abs(a.length-b.length)>1) return false;
+  if(a.length===b.length){
+    var d=0;
+    for(var i=0;i<a.length;i++) if(a[i]!==b[i]) d++;
+    return d<=1;
+  }
+  var lo=a.length<b.length?a:b;
+  var hi=a.length<b.length?b:a;
+  var i=0,j=0,skipped=false;
+  while(i<hi.length&&j<lo.length){
+    if(hi[i]!==lo[j]){if(skipped) return false;skipped=true;i++;}
+    else{i++;j++;}
+  }
+  return true;
+}
+
+function advanceTo(idx){
+  if(idx<=curIdx||idx>=wordLen) return;
+  // Cap: don't jump more than SCAN_WINDOW words at once
+  curIdx=Math.min(idx,curIdx+SCAN_WINDOW);
+  // Trim spoken queue — keep only last 3 words
+  // so they don't re-match the same script position
+  if(spokenQueue.length>6) spokenQueue=spokenQueue.slice(-3);
+
+  paintWords(curIdx);
+  wordTarget(curIdx);
+  var pct=Math.round((curIdx/wordLen)*100);
+  setStag('ls','🎤 '+pct+'%  —  word '+(curIdx+1)+' / '+wordLen);
+  if(curIdx>=wordLen-2) finish();
+}
+
+// ── UTILS ────────────────────────────────────────────────
+function stopVoice(){
+  clearTimeout(silTimer);
+  recStarting=false;
+  document.getElementById('mic-dot').classList.remove('on');
+  if(rec){try{rec.abort();}catch(e){}rec=null;}
+}
+function stopAuto(){cancelAnimationFrame(autoRAF);autoRAF=null;lastTS=null;}
+
+function showMicBlock(){
+  document.getElementById('mico-msg').innerHTML=micMsg();
+  document.getElementById('mico').classList.add('show');
+  setStag('er','Mic blocked');
+}
+function finish(){
+  if(!RUNNING) return;
+  RUNNING=false;stopVoice();stopAuto();
+  document.getElementById('done').style.display='block';
+  setStag('','✓ Complete!');
+}
+function setStag(cls,txt){
+  var t=document.getElementById('stag');
+  t.textContent=txt;t.className='stag'+(cls?' '+cls:'');
+}
+
+// ── CONTROLS ─────────────────────────────────────────────
+document.getElementById('b-play').addEventListener('click',function(){
+  PAUSED=!PAUSED;setPlayUI(!PAUSED);
+  if(PAUSED){
+    stopVoice();stopAuto();clearTimeout(silTimer);
+    setStag('pa','⏸ Paused');
+  } else {
+    RUNNING=true;
+    document.getElementById('done').style.display='none';
+    resetTrackerState();
+    if(MODE==='voice') beginVoice(); else beginAuto();
+  }
+});
+function setPlayUI(on){
+  var ico=document.getElementById('p-ico'),lbl=document.getElementById('p-lbl');
+  if(on){ico.textContent='⏸';lbl.textContent='Pause';}
+  else  {ico.textContent='▶';lbl.textContent='Resume';}
+}
+
+document.getElementById('b-mode').addEventListener('click',function(){
+  MODE=(MODE==='voice')?'auto':'voice';
+  PAUSED=false;RUNNING=true;
+  document.getElementById('done').style.display='none';
+  document.getElementById('mico').classList.remove('show');
+  resetTrackerState();setPlayUI(true);updateModeBtn();
+  if(MODE==='voice') beginVoice(); else beginAuto();
+});
+function updateModeBtn(){
+  var ico=document.getElementById('m-ico'),lbl=document.getElementById('m-lbl'),btn=document.getElementById('b-mode');
+  if(MODE==='voice'){ico.textContent='🎤';lbl.textContent='Voice';btn.classList.add('on');}
+  else              {ico.textContent='⚙️';lbl.textContent='Auto'; btn.classList.remove('on');}
+}
+
+var sp=document.getElementById('spanel');
+document.getElementById('b-spd').addEventListener('click',function(e){
+  e.stopPropagation();sp.classList.toggle('show');
+  document.getElementById('b-spd').classList.toggle('on',sp.classList.contains('show'));
+});
+document.getElementById('prompter').addEventListener('click',function(e){
+  if(!sp.contains(e.target)&&!document.getElementById('b-spd').contains(e.target)){
+    sp.classList.remove('show');document.getElementById('b-spd').classList.remove('on');
+  }
+});
+
+document.getElementById('b-rst').addEventListener('click',function(){
+  stopVoice();stopAuto();
+  curIdx=0;PAUSED=false;RUNNING=true;
+  SCROLL_Y=0;targetY=0;VEL=0;
+  resetTrackerState();
+  paintWords(0);
+  document.getElementById('done').style.display='none';
+  document.getElementById('mico').classList.remove('show');
+  setPlayUI(true);
+  if(MODE==='voice') beginVoice(); else beginAuto();
+});
+
+document.getElementById('b-back').addEventListener('click',function(){
+  RUNNING=false;stopVoice();stopAuto();cancelAnimationFrame(scrollRAF);
+  document.getElementById('prompter').classList.remove('active');
+  document.getElementById('setup').classList.add('active');
+});
+
+document.getElementById('mic-retry').addEventListener('click',function(){
+  document.getElementById('mico').classList.remove('show');
+  resetTrackerState();setTimeout(beginVoice,200);
+});
+document.getElementById('mic-switch').addEventListener('click',function(){
+  document.getElementById('mico').classList.remove('show');
+  MODE='auto';updateModeBtn();beginAuto();
+});
+
+window.addEventListener('resize',function(){if(RUNNING)setTimeout(measure,300);});
+if('wakeLock' in navigator) navigator.wakeLock.request('screen').catch(function(){});
+document.addEventListener('touchmove',function(e){
+  if(document.getElementById('prompter').classList.contains('active')) e.preventDefault();
+},{passive:false});
+</script>
+</body>
+</html>
