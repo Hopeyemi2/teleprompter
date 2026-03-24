@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Smart Teleprompter</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  :root{--bg:#0a0a0a;--s:#141414;--s2:#1e1e1e;--a:#00d4aa;--a2:#0099ff;--w:#ff6b35;--t:#fff;--t2:#aaa;--r:12px}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--t);height:100vh;width:100vw;overflow:hidden;position:fixed}
+  .screen{display:none;flex-direction:column;height:100%;width:100%;position:absolute;top:0;left:0}
+  .screen.active{display:flex}
+  /* SETUP */
+  #setup{background:var(--bg);overflow-y:auto;-webkit-overflow-scrolling:touch}
+  .hdr{background:linear-gradient(135deg,#0a2a20,#0a1a2e);padding:44px 24px 28px;text-align:center;border-bottom:1px solid #222}
+  .logo{font-size:11px;letter-spacing:3px;color:var(--a);text-transform:uppercase;margin-bottom:8px}
+  .hdr h1{font-size:24px;font-weight:700;color:var(--a);margin-bottom:6px}
+  .hdr p{font-size:13px;color:var(--t2)}
+  .body{padding:20px;display:flex;flex-direction:column;gap:16px;padding-bottom:48px}
+  .card{background:var(--s);border-radius:var(--r);padding:16px;border:1px solid #2a2a2a}
+  .cl{font-size:11px;letter-spacing:1.5px;color:var(--a);text-transform:uppercase;font-weight:600;margin-bottom:12px}
+  textarea{width:100%;min-height:160px;background:var(--s2);border:1px solid #333;border-radius:8px;color:var(--t);font-size:16px;line-height:1.6;padding:14px;resize:vertical;outline:none;font-family:inherit;-webkit-appearance:none}
+  textarea:focus{border-color:var(--a)}
+  textarea::placeholder{color:#555}
+  .sr{display:flex;align-items:center;gap:12px}
+  .sr label{font-size:14px;color:var(--t2);min-width:70px}
+  .sr span{font-size:14px;color:var(--a);min-width:40px;text-align:right;font-weight:600}
+  input[type=range]{flex:1;-webkit-appearance:none;appearance:none;height:5px;border-radius:3px;background:#333;outline:none}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:26px;height:26px;border-radius:50%;background:var(--a);cursor:pointer}
+  .mtog{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .mbtn{padding:14px 10px;border-radius:10px;border:2px solid #333;background:transparent;color:var(--t2);font-size:13px;font-weight:600;cursor:pointer;text-align:center;line-height:1.5}
+  .mbtn .mi{font-size:24px;display:block;margin-bottom:4px}
+  .mbtn.sel{border-color:var(--a);background:rgba(0,212,170,.1);color:var(--a)}
+  #spdc{display:none}
+  #spdc.vis{display:block}
+  .crow{display:flex;gap:10px;flex-wrap:wrap}
+  .cbtn{width:36px;height:36px;border-radius:50%;border:3px solid transparent;cursor:pointer}
+  .cbtn.sel{border-color:#fff;transform:scale(1.2)}
+  .start-btn{width:100%;padding:18px;border-radius:var(--r);border:none;background:linear-gradient(135deg,var(--a),var(--a2));color:#000;font-size:17px;font-weight:700;cursor:pointer;-webkit-appearance:none}
+  /* HTTPS WARNING */
+  #https-warn{background:#1a0a00;border:1px solid var(--w);border-radius:var(--r);padding:14px;font-size:13px;color:var(--w);line-height:1.6;display:none}
+  #https-warn strong{display:block;margin-bottom:6px;font-size:14px}
+  #https-warn a{color:#ffaa55;text-decoration:underline}
+  /* PROMPTER */
+  #prompter{background:#000;position:relative;overflow:hidden}
+  #prompter::before,#prompter::after{content:'';position:absolute;left:0;right:0;height:100px;z-index:10;pointer-events:none}
+  #prompter::before{top:0;background:linear-gradient(to bottom,#000,transparent)}
+  #prompter::after{bottom:64px;background:linear-gradient(to top,#000,transparent)}
+  .rline{position:absolute;left:0;right:0;top:36%;height:2px;background:rgba(0,212,170,.35);z-index:9;pointer-events:none}
+  #sw{position:absolute;top:0;left:0;right:0;will-change:transform}
+  #sd{padding:50vh 24px 50vh;font-size:32px;line-height:1.7;color:#fff;font-weight:500;text-align:center;word-break:break-word}
+  .w{display:inline}
+  .w.active{background:rgba(0,212,170,.25);color:var(--a);border-radius:4px;padding:0 2px}
+  .cbar{position:absolute;bottom:0;left:0;right:0;height:64px;background:rgba(8,8,8,.95);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:space-around;padding:0 4px;border-top:1px solid #1e1e1e;z-index:20}
+  .cb{display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 10px;border-radius:10px;border:none;background:transparent;color:var(--t2);font-size:10px;cursor:pointer;min-width:54px}
+  .cb .ic{font-size:20px;line-height:1}
+  .cb:active{background:rgba(255,255,255,.1)}
+  .cb.on{color:var(--a)}
+  .pill{position:absolute;top:12px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.85);border:1px solid #333;border-radius:20px;padding:5px 16px;font-size:11px;color:var(--t2);z-index:20;white-space:nowrap;max-width:92%;text-align:center}
+  .pill.ls{border-color:var(--a);color:var(--a)}
+  .pill.au{border-color:var(--a2);color:var(--a2)}
+  .pill.pa{border-color:var(--w);color:var(--w)}
+  #spanel{display:none;position:absolute;bottom:70px;left:16px;right:16px;background:#111;border:1px solid #333;border-radius:var(--r);padding:16px 20px;z-index:25}
+  #spanel.show{display:block}
+  #prog{position:absolute;top:0;left:0;height:3px;background:linear-gradient(90deg,var(--a),var(--a2));z-index:20;width:0%}
+  #done{display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,212,170,.1);border:2px solid var(--a);border-radius:var(--r);padding:28px 36px;text-align:center;z-index:30}
+  #done h2{color:var(--a);font-size:22px;margin-bottom:8px}
+  #done p{color:var(--t2);font-size:14px}
+  /* MIC BLOCKED OVERLAY */
+  #mico{display:none;position:absolute;inset:0;background:rgba(0,0,0,.95);z-index:50;flex-direction:column;align-items:center;justify-content:center;padding:28px;text-align:center;gap:14px}
+  #mico.show{display:flex}
+  #mico h2{color:var(--w);font-size:19px}
+  #mico p{color:var(--t2);font-size:13px;line-height:1.75;max-width:320px}
+  #mico p b{color:#fff}
+  .ybtn{padding:14px 28px;border-radius:var(--r);border:none;background:var(--a);color:#000;font-size:15px;font-weight:700;cursor:pointer;width:100%;max-width:280px}
+  .nbtn{padding:12px 28px;border-radius:var(--r);border:2px solid var(--a2);background:transparent;color:var(--a2);font-size:14px;font-weight:600;cursor:pointer;width:100%;max-width:280px}
+</style>
+</head>
+<body>
+
+<!-- ══ SETUP ══ -->
+<div id="setup" class="screen active">
+  <div class="hdr">
+    <div class="logo">Smart Teleprompter</div>
+    <h1>Your Words. Your Pace.</h1>
+    <p>Voice-activated or auto-scroll — built for creators</p>
+  </div>
+  <div class="body">
+
+    <!-- HTTPS warning shown if not on secure origin -->
+    <div id="https-warn">
+      <strong>⚠️ Microphone requires HTTPS</strong>
+      You are opening this file directly from your phone storage.
+      Microphone only works when the page is hosted online (HTTPS).<br><br>
+      <strong>Free fix — 3 steps:</strong><br>
+      1. Go to <a href="https://tiiny.host" target="_blank">tiiny.host</a> on your phone<br>
+      2. Upload this HTML file<br>
+      3. Open the link they give you — mic will work<br><br>
+      Or use <b>Auto Scroll mode</b> below — no mic needed.
+    </div>
+
+    <div class="card">
+      <div class="cl">Your Script</div>
+      <textarea id="ta" placeholder="Paste or type your script here…&#10;&#10;Voice Mode: scrolls as you speak&#10;Auto Mode: scrolls at a fixed speed — no mic needed"></textarea>
+    </div>
+
+    <div class="card">
+      <div class="cl">Text Size</div>
+      <div class="sr"><label>Size</label><input type="range" id="sz" min="20" max="72" value="34"><span id="szv">34px</span></div>
+    </div>
+
+    <div class="card">
+      <div class="cl">Text Colour</div>
+      <div class="crow">
+        <div class="cbtn sel" data-c="#ffffff" style="background:#ffffff"></div>
+        <div class="cbtn" data-c="#00d4aa" style="background:#00d4aa"></div>
+        <div class="cbtn" data-c="#ffdd57" style="background:#ffdd57"></div>
+        <div class="cbtn" data-c="#ff9f43" style="background:#ff9f43"></div>
+        <div class="cbtn" data-c="#74b9ff" style="background:#74b9ff"></div>
+        <div class="cbtn" data-c="#fd79a8" style="background:#fd79a8"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="cl">Scroll Mode</div>
+      <div class="mtog">
+        <button class="mbtn sel" data-mode="voice"><span class="mi">🎤</span>Voice Mode<br><small style="opacity:.7;font-weight:400">Follows your speech</small></button>
+        <button class="mbtn" data-mode="auto"><span class="mi">⚙️</span>Auto Scroll<br><small style="opacity:.7;font-weight:400">No mic needed</small></button>
+      </div>
+    </div>
+
+    <div class="card" id="spdc">
+      <div class="cl">Auto Scroll Speed</div>
+      <div class="sr"><label>Speed</label><input type="range" id="spd" min="1" max="10" value="3"><span id="spdv">3</span></div>
+    </div>
+
+    <button class="start-btn" id="start-btn">▶  START PROMPTER</button>
+  </div>
+</div>
+
+
+<!-- ══ PROMPTER ══ -->
+<div id="prompter" class="screen">
+  <div id="prog"></div>
+  <div class="rline"></div>
+  <div class="pill" id="pill">Ready</div>
+  <div id="sw"><div id="sd"></div></div>
+
+  <!-- Mic blocked overlay with exact per-browser instructions -->
+  <div id="mico">
+    <span style="font-size:48px">🎤</span>
+    <h2>Microphone Blocked</h2>
+    <p id="mico-msg">Loading instructions…</p>
+    <button class="ybtn" id="mic-retry">Retry Microphone</button>
+    <button class="nbtn" id="mic-switch">Use Auto Scroll Instead</button>
+  </div>
+
+  <div id="spanel">
+    <div class="cl">Scroll Speed</div>
+    <div class="sr"><label>Speed</label><input type="range" id="spd-p" min="1" max="10" value="3"><span id="spd-pv">3</span></div>
+  </div>
+
+  <div id="done"><h2>✓ Complete!</h2><p>Great take! Restart or go back to Setup.</p></div>
+
+  <div class="cbar">
+    <button class="cb" id="b-back"><span class="ic">←</span><span>Setup</span></button>
+    <button class="cb on" id="b-play"><span class="ic" id="p-ico">⏸</span><span id="p-lbl">Pause</span></button>
+    <button class="cb on" id="b-mode"><span class="ic" id="m-ico">🎤</span><span id="m-lbl">Voice</span></button>
+    <button class="cb" id="b-spd"><span class="ic">⚡</span><span>Speed</span></button>
+    <button class="cb" id="b-rst"><span class="ic">↺</span><span>Restart</span></button>
+  </div>
+</div>
+
+
+<script>
+// ══ DETECT ENVIRONMENT ═══════════════════════════════════
+var isHTTPS   = location.protocol === 'https:';
+var isLocalFile = location.protocol === 'file:';
+var ua        = navigator.userAgent || '';
+var isIOS     = /iPad|iPhone|iPod/.test(ua);
+var isAndroid = /Android/.test(ua);
+var isSafari  = /Safari/.test(ua) && !/Chrome/.test(ua);
+var isChrome  = /Chrome/.test(ua);
+
+// Show HTTPS warning if opened as local file
+if (isLocalFile || (!isHTTPS && location.hostname !== 'localhost')) {
+  document.getElementById('https-warn').style.display = 'block';
+}
+
+// Per-browser mic instructions
+function micInstructions() {
+  if (isIOS && isSafari) {
+    return '<b>iPhone / iPad (Safari):</b><br>1. Close this page<br>2. Go to iPhone <b>Settings → Safari → Microphone</b> → set to <b>Allow</b><br>3. Come back and tap Retry<br><br>Or tap "Use Auto Scroll" below.';
+  } else if (isIOS && isChrome) {
+    return '<b>iPhone / iPad (Chrome):</b><br>Microphone is controlled by Safari settings.<br>1. Go to iPhone <b>Settings → Safari → Microphone → Allow</b><br>2. Tap Retry<br><br>Or tap "Use Auto Scroll" below.';
+  } else if (isAndroid && isChrome) {
+    return '<b>Android (Chrome):</b><br>1. Tap the <b>lock icon 🔒</b> in the address bar<br>2. Tap <b>Microphone</b> → set to <b>Allow</b><br>3. Reload the page and tap Retry<br><br>Or tap "Use Auto Scroll" below.';
+  } else {
+    return '<b>Microphone was blocked.</b><br>Click the lock icon or camera icon in your browser address bar, set Microphone to <b>Allow</b>, then tap Retry.<br><br>Or tap "Use Auto Scroll" below.';
+  }
+}
+
+// ══ STATE ════════════════════════════════════════════════
+var MODE='voice', PAUSED=false, RUNNING=false;
+var SCROLL_Y=0, SPD=3, FS=34, COL='#ffffff';
+var wordEls=[], wordTops=[], wordClean=[], curIdx=0, totalH=0;
+var rec=null, autoRAF=null, lastTS=null;
+
+// ══ SETUP ════════════════════════════════════════════════
+document.getElementById('sz').addEventListener('input', function(){
+  FS=parseInt(this.value); document.getElementById('szv').textContent=FS+'px';
+});
+
+function syncSpd(v){
+  SPD=v;
+  ['spd','spd-p'].forEach(function(id){ document.getElementById(id).value=v; });
+  ['spdv','spd-pv'].forEach(function(id){ document.getElementById(id).textContent=v; });
+}
+document.getElementById('spd').addEventListener('input',   function(){ syncSpd(parseInt(this.value)); });
+document.getElementById('spd-p').addEventListener('input', function(){ syncSpd(parseInt(this.value)); });
+
+document.querySelectorAll('.mbtn').forEach(function(b){
+  b.addEventListener('click', function(){
+    document.querySelectorAll('.mbtn').forEach(function(x){ x.classList.remove('sel'); });
+    b.classList.add('sel'); MODE=b.dataset.mode;
+    document.getElementById('spdc').classList.toggle('vis', MODE==='auto');
+  });
+});
+
+document.querySelectorAll('.cbtn').forEach(function(b){
+  b.addEventListener('click', function(){
+    document.querySelectorAll('.cbtn').forEach(function(x){ x.classList.remove('sel'); });
+    b.classList.add('sel'); COL=b.dataset.c;
+  });
+});
+
+// ══ START ════════════════════════════════════════════════
+document.getElementById('start-btn').addEventListener('click', function(){
+  var text=document.getElementById('ta').value.trim();
+  if (!text){
+    var ta=document.getElementById('ta');
+    ta.style.borderColor='#ff4757';
+    setTimeout(function(){ ta.style.borderColor='#333'; },1500);
+    return;
+  }
+  launch(text);
+});
+
+function launch(text){
+  var sd=document.getElementById('sd');
+  sd.style.fontSize=FS+'px'; sd.style.color=COL; sd.innerHTML='';
+  wordEls=[]; wordClean=[]; curIdx=0; SCROLL_Y=0;
+
+  text.split(/(\s+)/).forEach(function(tok){
+    if (/\S/.test(tok)){
+      var sp=document.createElement('span');
+      sp.className='w'; sp.textContent=tok;
+      sd.appendChild(sp);
+      wordEls.push(sp);
+      wordClean.push(tok.toLowerCase().replace(/[^a-z0-9]/g,''));
+    } else {
+      sd.appendChild(document.createTextNode(tok));
+    }
+  });
+
+  document.getElementById('setup').classList.remove('active');
+  document.getElementById('prompter').classList.add('active');
+  document.getElementById('done').style.display='none';
+  document.getElementById('mico').classList.remove('show');
+
+  RUNNING=true; PAUSED=false; setPlayUI(true);
+
+  requestAnimationFrame(function(){
+    requestAnimationFrame(function(){
+      measure();
+      if (MODE==='voice') beginVoice(); else beginAuto();
+      updateModeBtn();
+    });
+  });
+}
+
+// ══ MEASURE ══════════════════════════════════════════════
+function measure(){
+  var wrap=document.getElementById('sw');
+  wrap.style.transform='translateY(0px)'; SCROLL_Y=0;
+  var wt=wrap.getBoundingClientRect().top;
+  wordTops=wordEls.map(function(sp){ return sp.getBoundingClientRect().top-wt; });
+  totalH=wrap.scrollHeight;
+}
+
+// ══ SCROLL ═══════════════════════════════════════════════
+function applyScroll(y){
+  var max=Math.max(0,totalH-window.innerHeight+64);
+  SCROLL_Y=Math.max(0,Math.min(y,max+window.innerHeight*.5));
+  document.getElementById('sw').style.transform='translateY('+(-SCROLL_Y)+'px)';
+  var pct=max>0?Math.min(100,(SCROLL_Y/max)*100):0;
+  document.getElementById('prog').style.width=pct+'%';
+  if (SCROLL_Y>=max+window.innerHeight*.2) finish();
+}
+
+function smoothTo(ty){
+  ty=Math.max(0,ty);
+  var sy=SCROLL_Y,d=ty-sy;
+  if (Math.abs(d)<3) return;
+  var dur=Math.min(700,Math.max(100,Math.abs(d)*1.2));
+  var t0=performance.now();
+  function step(now){
+    if (!RUNNING||MODE!=='voice') return;
+    var p=Math.min((now-t0)/dur,1),e=1-Math.pow(1-p,3);
+    applyScroll(sy+d*e);
+    if (p<1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+// ══ AUTO ═════════════════════════════════════════════════
+function beginAuto(){
+  stopVoice(); cancelAnimationFrame(autoRAF); lastTS=null;
+  setPill('au','⚙️  Auto scrolling — Speed '+SPD);
+  autoRAF=requestAnimationFrame(autoTick);
+}
+function autoTick(ts){
+  if (!RUNNING||MODE!=='auto') return;
+  autoRAF=requestAnimationFrame(autoTick);
+  if (PAUSED){lastTS=null;return;}
+  if (!lastTS){lastTS=ts;return;}
+  var dt=(ts-lastTS)/1000; lastTS=ts;
+  applyScroll(SCROLL_Y+SPD*38*dt);
+}
+
+// ══ VOICE ════════════════════════════════════════════════
+function beginVoice(){
+  stopAuto();
+
+  // If not HTTPS and not localhost — can't use mic
+  if (isLocalFile || (!isHTTPS && location.hostname!=='localhost')){
+    showMicOverlay();
+    return;
+  }
+
+  var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if (!SR){
+    MODE='auto'; updateModeBtn();
+    setPill('au','Voice not supported — switched to Auto');
+    beginAuto(); return;
+  }
+
+  if (rec){try{rec.abort();}catch(e){} rec=null;}
+
+  var r=new SR();
+  r.continuous=true; r.interimResults=true; r.lang='en-US';
+
+  r.onstart=function(){
+    document.getElementById('mico').classList.remove('show');
+    setPill('ls','🎤  Listening — speak your script');
+  };
+
+  r.onresult=function(e){
+    if (PAUSED||!RUNNING) return;
+    var full='';
+    for (var i=0;i<e.results.length;i++) full+=e.results[i][0].transcript+' ';
+    matchScript(full);
+  };
+
+  r.onerror=function(e){
+    console.log('SR:',e.error);
+    if (e.error==='not-allowed'||e.error==='service-not-allowed'){
+      showMicOverlay(); return;
+    }
+    if (e.error==='no-speech') return;
+    if (RUNNING&&MODE==='voice'&&!PAUSED) setTimeout(tryStart,400);
+  };
+
+  r.onend=function(){
+    if (RUNNING&&MODE==='voice'&&!PAUSED) setTimeout(tryStart,150);
+  };
+
+  rec=r; tryStart();
+}
+
+function tryStart(){
+  if (!rec||MODE!=='voice'||!RUNNING||PAUSED) return;
+  try{rec.start();}catch(e){}
+}
+
+function showMicOverlay(){
+  document.getElementById('mico-msg').innerHTML=micInstructions();
+  document.getElementById('mico').classList.add('show');
+  setPill('pa','Microphone blocked — see instructions');
+}
+
+// ══ MATCH ════════════════════════════════════════════════
+function matchScript(raw){
+  var spoken=raw.toLowerCase().replace(/[^a-z0-9\s]/g,'').trim();
+  if (!spoken) return;
+  var arr=spoken.split(/\s+/).filter(Boolean);
+  if (!arr.length) return;
+  var end=Math.min(wordEls.length-1,curIdx+50);
+  var best=curIdx, pool=arr.slice(-15);
+  for (var wi=curIdx;wi<=end;wi++){
+    var sw=wordClean[wi];
+    if (!sw||sw.length<2) continue;
+    for (var pi=0;pi<pool.length;pi++){
+      var sp=pool[pi];
+      if (!sp||sp.length<2) continue;
+      if (sp===sw||sw.startsWith(sp)||sp.startsWith(sw)){
+        if (wi>best) best=wi; break;
+      }
+    }
+  }
+  if (best>curIdx) jump(best);
+}
+
+function jump(idx){
+  if (wordEls[curIdx]) wordEls[curIdx].classList.remove('active');
+  curIdx=idx;
+  var el=wordEls[idx];
+  if (el){
+    el.classList.add('active');
+    smoothTo((wordTops[idx]||0)-window.innerHeight*.36);
+  }
+}
+
+function stopVoice(){ if (rec){try{rec.abort();}catch(e){} rec=null;} }
+function stopAuto(){ cancelAnimationFrame(autoRAF); autoRAF=null; lastTS=null; }
+
+// ══ FINISH ═══════════════════════════════════════════════
+function finish(){
+  if (!RUNNING) return;
+  RUNNING=false; stopVoice(); stopAuto();
+  document.getElementById('done').style.display='block';
+  setPill('','✓  Script complete');
+}
+
+// ══ PILL ═════════════════════════════════════════════════
+function setPill(cls,txt){
+  var p=document.getElementById('pill');
+  p.textContent=txt; p.className='pill'+(cls?' '+cls:'');
+}
+
+// ══ CONTROLS ═════════════════════════════════════════════
+document.getElementById('b-play').addEventListener('click',function(){
+  PAUSED=!PAUSED; setPlayUI(!PAUSED);
+  if (PAUSED){
+    stopVoice(); stopAuto(); setPill('pa','⏸  Paused');
+  } else {
+    RUNNING=true;
+    document.getElementById('done').style.display='none';
+    if (MODE==='voice') beginVoice(); else beginAuto();
+  }
+});
+
+function setPlayUI(on){
+  var ico=document.getElementById('p-ico'),lbl=document.getElementById('p-lbl'),btn=document.getElementById('b-play');
+  if (on){ico.textContent='⏸';lbl.textContent='Pause';btn.classList.add('on');}
+  else   {ico.textContent='▶';lbl.textContent='Resume';btn.classList.remove('on');}
+}
+
+document.getElementById('b-mode').addEventListener('click',function(){
+  MODE=(MODE==='voice')?'auto':'voice';
+  PAUSED=false; RUNNING=true;
+  document.getElementById('done').style.display='none';
+  document.getElementById('mico').classList.remove('show');
+  setPlayUI(true); updateModeBtn();
+  if (MODE==='voice') beginVoice(); else beginAuto();
+});
+
+function updateModeBtn(){
+  var ico=document.getElementById('m-ico'),lbl=document.getElementById('m-lbl'),btn=document.getElementById('b-mode');
+  if (MODE==='voice'){ico.textContent='🎤';lbl.textContent='Voice';btn.classList.add('on');}
+  else               {ico.textContent='⚙️';lbl.textContent='Auto'; btn.classList.remove('on');}
+}
+
+var spanel=document.getElementById('spanel');
+document.getElementById('b-spd').addEventListener('click',function(e){
+  e.stopPropagation();
+  spanel.classList.toggle('show');
+  document.getElementById('b-spd').classList.toggle('on',spanel.classList.contains('show'));
+});
+document.getElementById('prompter').addEventListener('click',function(e){
+  if (!spanel.contains(e.target)&&!document.getElementById('b-spd').contains(e.target)){
+    spanel.classList.remove('show');
+    document.getElementById('b-spd').classList.remove('on');
+  }
+});
+
+document.getElementById('b-rst').addEventListener('click',function(){
+  stopVoice(); stopAuto();
+  wordEls.forEach(function(w){w.classList.remove('active');});
+  curIdx=0; PAUSED=false; RUNNING=true;
+  document.getElementById('done').style.display='none';
+  document.getElementById('mico').classList.remove('show');
+  applyScroll(0); setPlayUI(true);
+  if (MODE==='voice') beginVoice(); else beginAuto();
+});
+
+document.getElementById('b-back').addEventListener('click',function(){
+  RUNNING=false; stopVoice(); stopAuto();
+  wordEls.forEach(function(w){w.classList.remove('active');});
+  document.getElementById('prompter').classList.remove('active');
+  document.getElementById('setup').classList.add('active');
+});
+
+// Mic overlay buttons
+document.getElementById('mic-retry').addEventListener('click',function(){
+  document.getElementById('mico').classList.remove('show');
+  if (rec){try{rec.abort();}catch(e){} rec=null;}
+  setTimeout(function(){ beginVoice(); },300);
+});
+
+document.getElementById('mic-switch').addEventListener('click',function(){
+  document.getElementById('mico').classList.remove('show');
+  MODE='auto'; updateModeBtn(); beginAuto();
+});
+
+window.addEventListener('resize',function(){ if (RUNNING) setTimeout(measure,300); });
+if ('wakeLock' in navigator) navigator.wakeLock.request('screen').catch(function(){});
+document.addEventListener('touchmove',function(e){
+  if (document.getElementById('prompter').classList.contains('active')) e.preventDefault();
+},{passive:false});
+</script>
+</body>
+</html>
